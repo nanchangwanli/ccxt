@@ -1,0 +1,70 @@
+python
+# -*- coding: utf-8 -*-
+
+import numpy as np    
+import pandas as pd  
+
+# 设置策略参数
+fast_period = 12     # 快速EMA周期  
+slow_period = 26     # 慢速EMA周期
+long_period = 52     # 长期SMA周期
+short_period = 12    # 短期SMA周期  
+
+atr_period = 21      # ATR波动率周期
+max_hold_stocks = 10 # 最大持仓数量                     
+trade_value = 100000 # 每次交易金额
+
+# 初始化函数,定义账户状态  
+def initialize(account):    
+    account.hold = []    # 定义持仓列表     
+    account.closes = [] # 定义历史收盘价列表   
+
+# 定义快慢线趋势判断函数
+def cross_over(a, b):  
+    if a > b:
+        return True  
+    return False  
+
+def cross_under(a, b):
+    if a < b:
+        return True  
+    return False   
+        
+# 处理账户数据,生成各周期SMA,EMA及ATR    
+def handle_bar(account, bar):  
+
+    #1.保存历史收盘价
+    close = bar['close']
+    account.closes.append(close) 
+    if len(account.closes) < max(fast_period, slow_period, long_period, short_period) + 5:
+        return  
+    
+    #2.计算各周期SMA  
+    sma_long = np.mean(account.closes[-long_period:]) #长周期SMA
+    sma_short = np.mean(account.closes[-short_period:]) #短周期SMA
+    
+    #3.计算快慢速EMA及DEA均线 
+    ema_fast = pd.ewma(account.closes, span=fast_period)[-1] #快速EMA
+    ema_slow = pd.ewma(account.closes, span=slow_period)[-1] #慢速EMA  
+    
+    #4.计算ATR指标的值
+    atr = pd.ewma(account.closes, span=atr_period,min_periods=atr_period)[-1]#ATR指数
+    
+    #5.计算RSI指标并判断是否超买超卖
+    rsi = cal_rsi(ema_fast, ema_slow) 
+    over_bought = rsi > 70  #超买
+    over_sold = rsi < 30   #超卖  
+
+    #6.发送交易信号  
+    if cross_over(ema_fast, ema_slow) and not over_bought and not in_position(account):         
+        buy(account, bar['close'], trade_value)  
+    elif cross_under(ema_fast, ema_slow) and not over_sold and in_position(account):           
+        sell(account, bar['close'])
+
+    #7.仓位管理
+    if (sma_long - sma_short) / sma_short > 0.1 and len(account.hold) < max_hold_stocks:         
+        buy(account, bar['close'], trade_value)  
+        
+    if (sma_long - sma_short) / sma_short < 0.05:                 
+        for stock in account.hold:  
+            sell(account, bar['close'], stock)
